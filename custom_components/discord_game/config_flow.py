@@ -87,14 +87,19 @@ class DiscordGameConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         client = nextcord.Client(intents=nextcord.Intents.all())
         try:
             await client.login(token)
-            guilds = await client.fetch_guilds().flatten()
-            _LOGGER.debug("guilds: %s", guilds)
+            guilds_iter = client.fetch_guilds()
+            _LOGGER.debug("fetch_guilds() type: %s, value: %r", type(guilds_iter), guilds_iter)
+            guilds = [g async for g in guilds_iter]
+            _LOGGER.debug("guilds (as list): %s", guilds)
 
             self.members = {}
             self.channels = {}
 
             for guild in guilds:
-                _members = await guild.fetch_members().flatten()
+                _members_iter = guild.fetch_members()
+                _LOGGER.debug("fetch_members() type: %s, value: %r", type(_members_iter), _members_iter)
+                _members = [m async for m in _members_iter]
+                _LOGGER.debug("members (as list): %s", _members)
                 for member in _members:
                     self.members[member.name] = member
 
