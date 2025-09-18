@@ -14,12 +14,13 @@ To create a bot user and get a token:
 1. Go to https://discordapp.com/developers/applications/
 2. Create New Application
 3. Put in a Name of your liking and click create
-4. Click on Bot in the left panel and then Add Bot and Yes, do it!
-5. A green message "A wild bot has appeared!" should appear on the page
-6. Uncheck PUBLIC BOT
+4. In the Installation tab, change install link to None
+5. Click on Bot in the left panel and then Add Bot and Yes, do it!
+6. A green message "A wild bot has appeared!" should appear on the page
+7. Uncheck PUBLIC BOT
 8. Enable every Intent in the Privileged Gateway Intents section
-10. Click Save changes on the bottom of the page
-11. Under Token, click on Copy, this is your token, that you need to later paste into home assistant configuration flow, keep in mind that the bot first has to be invited to some server
+9. Click Save changes on the bottom of the page
+10. Under Token, click on Copy, this is your token, that you need to later paste into home assistant configuration flow, keep in mind that the bot first has to be invited to some server
 
 You also need your own discord server (or some server where you have "manage server" permission), and you need to invite the bot to that server.
 To invite your bot to your server, use following steps:
