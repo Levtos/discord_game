@@ -218,11 +218,33 @@ async def async_setup_entry(
         _watcher.user_name = discord_user.global_name
         _watcher.async_schedule_update_ha_state(False)
 
+    def to_media_discord_url(url: str) -> str:
+        PATTERN_WITH_SIZE = re.compile(
+            r'^https://cdn\.discordapp\.com/app-assets/\d+/mp:external/([^/]+)/(https/.+?)(_\d+)\.(?:png|jpg|jpeg|webp)$'
+        )
+
+        PATTERN_NO_SIZE = re.compile(
+            r'^https://cdn\.discordapp\.com/app-assets/\d+/mp:external/([^/]+)/(https/.+?)\.(?:png|jpg|jpeg|webp)$'
+        )
+
+        if "mp:external" not in url:
+            return url
+
+        m = PATTERN_WITH_SIZE.match(url)
+        if m:
+            return f"https://media.discordapp.net/external/{m.group(1)}/{m.group(2)}{m.group(3)}"
+
+        m = PATTERN_NO_SIZE.match(url)
+        if m:
+            return f"https://media.discordapp.net/external/{m.group(1)}/{m.group(2)}"
+
+        return url
+
     async def load_game_image(_watcher: DiscordAsyncMemberState, activity: Union[Activity, Game, Streaming]):
         # try:
         if hasattr(activity, 'large_image_url'):
-            _watcher.game_image_small = activity.small_image_url
-            _watcher.game_image_large = activity.large_image_url
+            _watcher.game_image_small = to_media_discord_url(activity.small_image_url)
+            _watcher.game_image_large = to_media_discord_url(activity.large_image_url)
             _watcher.game_image_small_text = activity.small_image_text
             _watcher.game_image_large_text = activity.large_image_text
         steam_app_by_name = list(filter(lambda steam_app: steam_app['name'] == str(activity.name), steam_app_list))
