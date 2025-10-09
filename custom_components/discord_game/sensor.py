@@ -227,7 +227,7 @@ async def async_setup_entry(
             r'^https://cdn\.discordapp\.com/app-assets/\d+/mp:external/([^/]+)/(https/.+?)\.(?:png|jpg|jpeg|webp)$'
         )
 
-        if "mp:external" not in url:
+        if not url or "mp:external" not in url:
             return url
 
         m = PATTERN_WITH_SIZE.match(url)
