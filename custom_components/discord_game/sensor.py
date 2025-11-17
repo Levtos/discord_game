@@ -87,13 +87,21 @@ async def async_setup_entry(
         await load_steam_application_list()
 
     async def load_steam_application_list():
-        async with aiohttp.ClientSession() as steam_session:
-            _LOGGER.debug("Loading Steam detectable applications - config_flow")
-            async with steam_session.get("https://api.steampowered.com/ISteamApps/GetAppList/v2/") as steam_response:
-                steam_app_list_response = Dict(await steam_response.json())
-                global steam_app_list
-                steam_app_list = steam_app_list_response['applist']['apps']
-                _LOGGER.debug("Loading Steam detectable applications finished - config_flow")
+        timeout = aiohttp.ClientTimeout(total=90, connect=10)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as steam_session:
+                _LOGGER.debug("Loading Steam detectable applications - config_flow")
+                async with steam_session.get("https://api.steampowered.com/ISteamApps/GetAppList/v2/") as steam_response:
+                    if steam_response.status != 200:
+                        _LOGGER.error("Error loading Steam detectable applications - config_flow, status=%s", steam_response.status)
+                        return
+                    steam_app_list_response = Dict(await steam_response.json())
+                    global steam_app_list
+                    steam_app_list = steam_app_list_response['applist']['apps']
+                    _LOGGER.debug("Loading Steam detectable applications finished - config_flow")
+        except asyncio.TimeoutError:
+            _LOGGER.error("Timeout while loading Steam detectable applications - config_flow")
+            return
 
     # noinspection PyUnusedLocal
     @bot.event
