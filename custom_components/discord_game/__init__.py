@@ -14,7 +14,10 @@ async def async_setup_entry(
         hass: core.HomeAssistant, entry: config_entries.ConfigEntry
 ) -> bool:
     """Set up platform from a ConfigEntry."""
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = entry.data
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        **entry.data,
+        "unsub_options_update_listener": entry.add_update_listener(async_options_updated),
+    }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -29,7 +32,9 @@ async def async_unload_entry(
         # Remove config entry from domain.
         entry_data = hass.data[DOMAIN].pop(entry.entry_id)
         # Remove options_update_listener.
-        entry_data["unsub_options_update_listener"]()
+        unsub_options_update_listener = entry_data.get("unsub_options_update_listener")
+        if unsub_options_update_listener:
+            unsub_options_update_listener()
 
     return unload_ok
 
@@ -38,3 +43,10 @@ async def async_setup(hass: core.HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DATA_HASS_CONFIG] = config
     return True
+
+
+async def async_options_updated(
+        hass: core.HomeAssistant, entry: config_entries.ConfigEntry
+) -> None:
+    """Handle options update."""
+    await hass.config_entries.async_reload(entry.entry_id)

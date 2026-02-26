@@ -27,6 +27,11 @@ ENTITY_ID_FORMAT = "sensor.discord_user_{}"
 ENTITY_ID_CHANNEL_FORMAT = "sensor.discord_channel_{}"
 
 steam_app_list = []
+STEAM_APP_LIST_URLS = (
+    "https://api.steampowered.com/ISteamApps/GetAppList/v2/",
+    "https://api.steampowered.com/ISteamApps/GetAppList/v0002/?format=json",
+    "https://api.steampowered.com/IStoreService/GetAppList/v1/?include_games=true&include_dlc=false&include_software=false&include_videos=false&include_hardware=false&max_results=200000",
+)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_ACCESS_TOKEN): cv.string,
@@ -90,17 +95,38 @@ async def async_setup_entry(
         timeout = aiohttp.ClientTimeout(total=90, connect=10)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as steam_session:
-                _LOGGER.debug("Loading Steam detectable applications - config_flow")
-                async with steam_session.get("https://api.steampowered.com/ISteamApps/GetAppList/v2/") as steam_response:
-                    if steam_response.status != 200:
-                        _LOGGER.error("Error loading Steam detectable applications - config_flow, status=%s", steam_response.status)
+                for steam_url in STEAM_APP_LIST_URLS:
+                    _LOGGER.debug("Loading Steam detectable applications - url=%s", steam_url)
+                    async with steam_session.get(steam_url) as steam_response:
+                        if steam_response.status != 200:
+                            _LOGGER.warning(
+                                "Error loading Steam detectable applications - url=%s, status=%s",
+                                steam_url,
+                                steam_response.status,
+                            )
+                            continue
+
+                        steam_app_list_response = Dict(await steam_response.json())
+                        apps = steam_app_list_response.get('applist', {}).get('apps')
+                        if apps is None:
+                            apps = steam_app_list_response.get('response', {}).get('apps')
+
+                        if apps is None:
+                            _LOGGER.warning("Steam app list response format not recognized - url=%s", steam_url)
+                            continue
+
+                        global steam_app_list
+                        steam_app_list = apps
+                        _LOGGER.debug(
+                            "Loading Steam detectable applications finished - url=%s, count=%s",
+                            steam_url,
+                            len(steam_app_list),
+                        )
                         return
-                    steam_app_list_response = Dict(await steam_response.json())
-                    global steam_app_list
-                    steam_app_list = steam_app_list_response['applist']['apps']
-                    _LOGGER.debug("Loading Steam detectable applications finished - config_flow")
+
+                _LOGGER.error("Unable to load Steam detectable applications from all configured endpoints")
         except asyncio.TimeoutError:
-            _LOGGER.error("Timeout while loading Steam detectable applications - config_flow")
+            _LOGGER.error("Timeout while loading Steam detectable applications")
             return
 
     # noinspection PyUnusedLocal
@@ -311,22 +337,29 @@ async def async_setup_entry(
 
     @bot.event
     async def on_ready():
-        users = {"{}".format(_user): _user for _user in bot.users}
-        members = {"{}".format(_member): _member for _member in list(bot.get_all_members())}
-        for name, _watcher in watchers.items():
-            if users.get(name) is not None:
-                await update_discord_entity_user(_watcher, users.get(name))
-            if members.get(name) is not None:
-                await update_discord_entity(_watcher, members.get(name))
+        users = {str(_user.id): _user for _user in bot.users}
+        members = {str(_member.id): _member for _member in list(bot.get_all_members())}
+        for _watcher in watchers.values():
+            user = users.get(str(_watcher.userid))
+            member = members.get(str(_watcher.userid))
+            if user is not None:
+                await update_discord_entity_user(_watcher, user)
+            if member is not None:
+                await update_discord_entity(_watcher, member)
                 for sensor in _watcher.sensors.values():
                     sensor.async_schedule_update_ha_state(False)
-        for name, _chan in channels.items():
+            else:
+                _watcher._state = "offline"
+                _watcher.async_schedule_update_ha_state(False)
+                for sensor in _watcher.sensors.values():
+                    sensor.async_schedule_update_ha_state(False)
+        for _chan in channels.values():
             _chan.async_schedule_update_ha_state(False)
 
     # noinspection PyUnusedLocal
     @bot.event
     async def on_member_update(before: Member, after: Member):
-        _watcher = watchers.get("{}".format(after))
+        _watcher = watchers.get(str(after.id))
         if _watcher is not None:
             await update_discord_entity(_watcher, after)
             for sensor in _watcher.sensors.values():
@@ -335,7 +368,7 @@ async def async_setup_entry(
     # noinspection PyUnusedLocal
     @bot.event
     async def on_presence_update(before: Member, after: Member):
-        _watcher = watchers.get("{}".format(after))
+        _watcher = watchers.get(str(after.id))
         if _watcher is not None:
             await update_discord_entity(_watcher, after)
             for sensor in _watcher.sensors.values():
@@ -344,7 +377,7 @@ async def async_setup_entry(
     # noinspection PyUnusedLocal
     @bot.event
     async def on_user_update(before: User, after: User):
-        _watcher: DiscordAsyncMemberState = watchers.get("{}".format(after))
+        _watcher: DiscordAsyncMemberState = watchers.get(str(after.id))
         if _watcher is not None:
             await update_discord_entity_user(_watcher, after)
             for sensor in _watcher.sensors.values():
@@ -353,7 +386,7 @@ async def async_setup_entry(
     # noinspection PyUnusedLocal
     @bot.event
     async def on_voice_state_update(_member: Member, before: VoiceState, after: VoiceState):
-        _watcher = watchers.get("{}".format(_member))
+        _watcher = watchers.get(str(_member.id))
         if _watcher is not None:
             if after.channel is not None:
                 _watcher.voice_channel = after.channel.name
@@ -375,7 +408,7 @@ async def async_setup_entry(
         channel_id = payload.channel_id
         _channel: GuildChannel = await bot.fetch_channel(channel_id)
         _member: Member = payload.member
-        _chan = channels.get("{}".format(_channel))
+        _chan = channels.get(str(_channel.id))
         if _chan:
             _chan._state = _member.display_name
             _chan._last_user = _member.display_name
@@ -383,26 +416,28 @@ async def async_setup_entry(
 
     watchers = {}
     for member in config.get(CONF_MEMBERS):
-        if re.match(r"^\d{,20}", str(member)):  # Up to 20 digits because 2^64 (snowflake-length) is 20 digits long
+        if re.match(r"^\d{1,20}$", str(member)):  # Up to 20 digits because 2^64 (snowflake-length) is 20 digits long
             user = await bot.fetch_user(member)
             if user:
                 watcher: DiscordAsyncMemberState = \
                     DiscordAsyncMemberState(hass, bot, user.name, user.global_name, user.id)
-                watchers[watcher.name] = watcher
+                watchers[str(watcher.userid)] = watcher
 
     channels = {}
     for channel in config.get(CONF_CHANNELS):
-        if re.match(r"^\d{,20}", str(channel)):  # Up to 20 digits because 2^64 (snowflake-length) is 20 digits long
+        if re.match(r"^\d{1,20}$", str(channel)):  # Up to 20 digits because 2^64 (snowflake-length) is 20 digits long
             chan: GuildChannel = await bot.fetch_channel(channel)
             if chan:
                 ch: DiscordAsyncReactionState = DiscordAsyncReactionState(hass, bot, chan.name, chan.id)
-                channels[ch.name] = ch
+                channels[str(chan.id)] = ch
 
-    if len(watchers) > 0:
-        async_add_entities(watchers.values())
-        for sensors in watchers.values():
-            async_add_entities(sensors.sensors.values())
-        async_add_entities(channels.values())
+    if watchers or channels:
+        if watchers:
+            async_add_entities(watchers.values())
+            for sensors in watchers.values():
+                async_add_entities(sensors.sensors.values())
+        if channels:
+            async_add_entities(channels.values())
         hass.bus.async_fire("discord_game_setup_finished")
 
 
