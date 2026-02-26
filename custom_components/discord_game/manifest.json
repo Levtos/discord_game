@@ -1,12 +1,21 @@
 {
   "domain": "discord_game",
   "name": "Discord Game",
-  "codeowners": ["@lordboos"],
-  "version": "6.0.6",
+  "codeowners": [
+    "@lordboos"
+  ],
+  "version": "6.0.9",
   "documentation": "https://github.com/LordBoos/discord_game",
   "config_flow": true,
   "iot_class": "cloud_push",
   "integration_type": "service",
-  "loggers": ["discord_game"],
-  "requirements": ["nextcord==3.1.1", "addict", "aiohttp", "validators"]
+  "loggers": [
+    "discord_game"
+  ],
+  "requirements": [
+    "nextcord==3.1.1",
+    "addict",
+    "aiohttp",
+    "validators"
+  ]
 }
