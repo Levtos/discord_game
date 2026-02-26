@@ -67,8 +67,8 @@ async def async_setup_entry(
     hass.bus.async_listen_once("discord_game_setup_finished", start_server)
 
     @bot.event
-    async def on_error(error, *args, **kwargs):
-        raise
+    async def on_error(event_name, *args, **kwargs):
+        _LOGGER.exception("Discord event handler failed: %s", event_name)
 
     async def update_discord_entity(_watcher: "DiscordAsyncMemberState", discord_member: Member):
         _watcher._state = str(discord_member.status)
@@ -80,7 +80,8 @@ async def async_setup_entry(
                 _watcher.game = activity.name
                 break
 
-        _watcher.async_schedule_update_ha_state(False)
+        if _watcher.hass is not None:
+            _watcher.async_schedule_update_ha_state(False)
 
     async def update_discord_entity_user(_watcher: "DiscordAsyncMemberState", discord_user: User):
         _watcher.avatar_url = str(
@@ -89,7 +90,8 @@ async def async_setup_entry(
         _watcher.userid = discord_user.id
         _watcher.member = discord_user.name
         _watcher.user_name = discord_user.global_name or discord_user.name
-        _watcher.async_schedule_update_ha_state(False)
+        if _watcher.hass is not None:
+            _watcher.async_schedule_update_ha_state(False)
 
     @bot.event
     async def on_ready():
@@ -104,13 +106,16 @@ async def async_setup_entry(
                 await update_discord_entity(_watcher, member)
             else:
                 _watcher._state = "offline"
-                _watcher.async_schedule_update_ha_state(False)
+                if _watcher.hass is not None:
+                    _watcher.async_schedule_update_ha_state(False)
 
             for sensor in _watcher.sensors.values():
-                sensor.async_schedule_update_ha_state(False)
+                if sensor.hass is not None:
+                    sensor.async_schedule_update_ha_state(False)
 
         for _chan in channels.values():
-            _chan.async_schedule_update_ha_state(False)
+            if _chan.hass is not None:
+                _chan.async_schedule_update_ha_state(False)
 
     @bot.event
     async def on_member_update(before: Member, after: Member):
@@ -118,7 +123,8 @@ async def async_setup_entry(
         if _watcher is not None:
             await update_discord_entity(_watcher, after)
             for sensor in _watcher.sensors.values():
-                sensor.async_schedule_update_ha_state(False)
+                if sensor.hass is not None:
+                    sensor.async_schedule_update_ha_state(False)
 
     @bot.event
     async def on_presence_update(before: Member, after: Member):
@@ -126,7 +132,8 @@ async def async_setup_entry(
         if _watcher is not None:
             await update_discord_entity(_watcher, after)
             for sensor in _watcher.sensors.values():
-                sensor.async_schedule_update_ha_state(False)
+                if sensor.hass is not None:
+                    sensor.async_schedule_update_ha_state(False)
 
     @bot.event
     async def on_user_update(before: User, after: User):
@@ -134,7 +141,8 @@ async def async_setup_entry(
         if _watcher is not None:
             await update_discord_entity_user(_watcher, after)
             for sensor in _watcher.sensors.values():
-                sensor.async_schedule_update_ha_state(False)
+                if sensor.hass is not None:
+                    sensor.async_schedule_update_ha_state(False)
 
     @bot.event
     async def on_voice_state_update(_member: Member, before: VoiceState, after: VoiceState):
@@ -142,9 +150,11 @@ async def async_setup_entry(
         _watcher = watchers.get(str(_member.id))
         if _watcher is not None:
             if after.channel is None and _watcher._state == "online":
-                _watcher.async_schedule_update_ha_state(False)
+                if _watcher.hass is not None:
+                    _watcher.async_schedule_update_ha_state(False)
                 for sensor in _watcher.sensors.values():
-                    sensor.async_schedule_update_ha_state(False)
+                    if sensor.hass is not None:
+                        sensor.async_schedule_update_ha_state(False)
 
     @bot.event
     async def on_raw_reaction_add(payload: RawReactionActionEvent):
@@ -153,7 +163,8 @@ async def async_setup_entry(
         if _chan and member is not None:
             _chan._state = member.display_name
             _chan._last_user = member.display_name
-            _chan.async_schedule_update_ha_state(False)
+            if _chan.hass is not None:
+                _chan.async_schedule_update_ha_state(False)
 
     watchers = {}
     for member in config.get(CONF_MEMBERS):
