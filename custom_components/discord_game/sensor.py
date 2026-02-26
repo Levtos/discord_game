@@ -51,8 +51,12 @@ async def async_setup_entry(
         await bot.close()
 
     def task_callback(task: asyncio.Task):
-        # Placeholder callback to consume task completion.
-        _ = task
+        """Log background task failures to avoid silent crashes."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            _LOGGER.exception("Discord client task failed", exc_info=exc)
 
     async def start_server(event):
         _LOGGER.debug("Starting server")
@@ -144,13 +148,11 @@ async def async_setup_entry(
 
     @bot.event
     async def on_raw_reaction_add(payload: RawReactionActionEvent):
-        channel_id = payload.channel_id
-        _channel: GuildChannel = await bot.fetch_channel(channel_id)
-        _member: Member = payload.member
-        _chan = channels.get(str(_channel.id))
-        if _chan:
-            _chan._state = _member.display_name
-            _chan._last_user = _member.display_name
+        _chan = channels.get(str(payload.channel_id))
+        member: Member | None = payload.member
+        if _chan and member is not None:
+            _chan._state = member.display_name
+            _chan._last_user = member.display_name
             _chan.async_schedule_update_ha_state(False)
 
     watchers = {}
@@ -195,7 +197,7 @@ class DiscordAsyncMemberState(SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(identifiers={(DOMAIN, self.member)}, name=self.member)
+        return DeviceInfo(identifiers={(DOMAIN, str(self.userid))}, name=self.member)
 
     @property
     def should_poll(self) -> bool:
@@ -259,7 +261,7 @@ class GenericSensor(SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(identifiers={(DOMAIN, self.sensor.member)}, name=self.sensor.member)
+        return DeviceInfo(identifiers={(DOMAIN, str(self.sensor.userid))}, name=self.sensor.member)
 
 
 class DiscordAsyncReactionState(SensorEntity):
