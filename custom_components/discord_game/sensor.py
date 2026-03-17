@@ -2,11 +2,9 @@ import asyncio
 import logging
 import re
 
-import homeassistant.helpers.config_validation as cv
 import validators
-import voluptuous as vol
 from homeassistant import config_entries, core
-from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import CONF_ACCESS_TOKEN, EVENT_HOMEASSISTANT_STOP
 from homeassistant.helpers.entity import DeviceInfo
 from nextcord import ActivityType, Member, RawReactionActionEvent, User, VoiceState
@@ -19,17 +17,9 @@ _LOGGER = logging.getLogger(__name__)
 ENTITY_ID_FORMAT = "sensor.discord_user_{}"
 ENTITY_ID_CHANNEL_FORMAT = "sensor.discord_channel_{}"
 
-# Keep only the explicitly requested entity attributes.
 SENSORS = ["avatar_url", "game", "user_name"]
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_ACCESS_TOKEN): cv.string,
-        vol.Required(CONF_MEMBERS, default=[]): vol.All(cv.ensure_list, [cv.string]),
-        vol.Required(CONF_CHANNELS, default=[]): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional(CONF_IMAGE_FORMAT, default="webp"): vol.In(["png", "webp", "jpeg", "jpg"]),
-    }
-)
+DISCORD_ID_PATTERN = r"^\d{1,20}$"
 
 
 async def async_setup_entry(
@@ -70,16 +60,23 @@ async def async_setup_entry(
     async def on_error(event_name, *args, **kwargs):
         _LOGGER.exception("Discord event handler failed: %s", event_name)
 
+    def notify_related_entities(_watcher: "DiscordAsyncMemberState") -> None:
+        """Push a state refresh to all child sensors and extra entities (e.g. media player)."""
+        for sensor in _watcher.sensors.values():
+            if sensor.hass is not None:
+                sensor.async_schedule_update_ha_state(False)
+        for entity in _watcher.extra_entities:
+            if entity.hass is not None:
+                entity.async_schedule_update_ha_state(False)
+
     async def update_discord_entity(_watcher: "DiscordAsyncMemberState", discord_member: Member):
         _watcher._state = str(discord_member.status)
         _watcher.display_name = discord_member.display_name
         _watcher.game = None
-
         for activity in discord_member.activities:
             if activity.type == ActivityType.playing:
                 _watcher.game = activity.name
                 break
-
         if _watcher.hass is not None:
             _watcher.async_schedule_update_ha_state(False)
 
@@ -96,7 +93,7 @@ async def async_setup_entry(
     @bot.event
     async def on_ready():
         users = {str(_user.id): _user for _user in bot.users}
-        members = {str(_member.id): _member for _member in list(bot.get_all_members())}
+        members = {str(_member.id): _member for _member in bot.get_all_members()}
         for _watcher in watchers.values():
             user = users.get(str(_watcher.userid))
             member = members.get(str(_watcher.userid))
@@ -108,14 +105,7 @@ async def async_setup_entry(
                 _watcher._state = "offline"
                 if _watcher.hass is not None:
                     _watcher.async_schedule_update_ha_state(False)
-
-            for sensor in _watcher.sensors.values():
-                if sensor.hass is not None:
-                    sensor.async_schedule_update_ha_state(False)
-            for entity in _watcher.extra_entities:
-                if entity.hass is not None:
-                    entity.async_schedule_update_ha_state(False)
-
+            notify_related_entities(_watcher)
         for _chan in channels.values():
             if _chan.hass is not None:
                 _chan.async_schedule_update_ha_state(False)
@@ -125,51 +115,29 @@ async def async_setup_entry(
         _watcher = watchers.get(str(after.id))
         if _watcher is not None:
             await update_discord_entity(_watcher, after)
-            for sensor in _watcher.sensors.values():
-                if sensor.hass is not None:
-                    sensor.async_schedule_update_ha_state(False)
-            for entity in _watcher.extra_entities:
-                if entity.hass is not None:
-                    entity.async_schedule_update_ha_state(False)
+            notify_related_entities(_watcher)
 
     @bot.event
     async def on_presence_update(before: Member, after: Member):
         _watcher = watchers.get(str(after.id))
         if _watcher is not None:
             await update_discord_entity(_watcher, after)
-            for sensor in _watcher.sensors.values():
-                if sensor.hass is not None:
-                    sensor.async_schedule_update_ha_state(False)
-            for entity in _watcher.extra_entities:
-                if entity.hass is not None:
-                    entity.async_schedule_update_ha_state(False)
+            notify_related_entities(_watcher)
 
     @bot.event
     async def on_user_update(before: User, after: User):
         _watcher: DiscordAsyncMemberState = watchers.get(str(after.id))
         if _watcher is not None:
             await update_discord_entity_user(_watcher, after)
-            for sensor in _watcher.sensors.values():
-                if sensor.hass is not None:
-                    sensor.async_schedule_update_ha_state(False)
-            for entity in _watcher.extra_entities:
-                if entity.hass is not None:
-                    entity.async_schedule_update_ha_state(False)
+            notify_related_entities(_watcher)
 
     @bot.event
     async def on_voice_state_update(_member: Member, before: VoiceState, after: VoiceState):
-        # Keep state updates flowing for current architecture.
         _watcher = watchers.get(str(_member.id))
-        if _watcher is not None:
-            if after.channel is None and _watcher._state == "online":
-                if _watcher.hass is not None:
-                    _watcher.async_schedule_update_ha_state(False)
-                for sensor in _watcher.sensors.values():
-                    if sensor.hass is not None:
-                        sensor.async_schedule_update_ha_state(False)
-                for entity in _watcher.extra_entities:
-                    if entity.hass is not None:
-                        entity.async_schedule_update_ha_state(False)
+        if _watcher is not None and after.channel is None and _watcher._state == "online":
+            if _watcher.hass is not None:
+                _watcher.async_schedule_update_ha_state(False)
+            notify_related_entities(_watcher)
 
     @bot.event
     async def on_raw_reaction_add(payload: RawReactionActionEvent):
@@ -183,7 +151,7 @@ async def async_setup_entry(
 
     watchers = {}
     for member in config.get(CONF_MEMBERS):
-        if re.match(r"^\d{1,20}$", str(member)):
+        if re.match(DISCORD_ID_PATTERN, str(member)):
             user = await bot.fetch_user(member)
             if user:
                 watcher = DiscordAsyncMemberState(hass, bot, user.name, user.global_name, user.id)
@@ -191,7 +159,7 @@ async def async_setup_entry(
 
     channels = {}
     for channel in config.get(CONF_CHANNELS):
-        if re.match(r"^\d{1,20}$", str(channel)):
+        if re.match(DISCORD_ID_PATTERN, str(channel)):
             chan: GuildChannel = await bot.fetch_channel(channel)
             if chan:
                 ch = DiscordAsyncReactionState(hass, bot, chan.name, chan.id)
@@ -200,12 +168,9 @@ async def async_setup_entry(
     hass.data[DOMAIN][config_entry.entry_id]["watchers"] = watchers
 
     if watchers or channels:
-        if watchers:
-            async_add_entities(watchers.values())
-            for sensors in watchers.values():
-                async_add_entities(sensors.sensors.values())
-        if channels:
-            async_add_entities(channels.values())
+        entities = list(watchers.values()) + [s for w in watchers.values() for s in w.sensors.values()]
+        entities += list(channels.values())
+        async_add_entities(entities)
         hass.bus.async_fire("discord_game_setup_finished")
 
 
@@ -214,7 +179,6 @@ class DiscordAsyncMemberState(SensorEntity):
         self.member = member
         self.userid = userid
         self.hass = hass
-        self.client = client
         self._state = "unknown"
         self.user_name = user_name or member
         self.display_name = None
@@ -278,11 +242,11 @@ class GenericSensor(SensorEntity):
 
     @property
     def unique_id(self):
-        return ENTITY_ID_FORMAT.format(self.sensor.userid) + "_" + self.attr
+        return f"{ENTITY_ID_FORMAT.format(self.sensor.userid)}_{self.attr}"
 
     @property
     def name(self):
-        return self.sensor.member + " " + self.attr
+        return f"{self.sensor.member} {self.attr}"
 
     @property
     def entity_picture(self):
@@ -300,8 +264,6 @@ class DiscordAsyncReactionState(SensorEntity):
     def __init__(self, hass, client, channel, channelid):
         self._channel_name = channel
         self._channel_id = channelid
-        self._hass = hass
-        self._client = client
         self._state = "unknown"
         self._last_user = None
         self.entity_id = ENTITY_ID_CHANNEL_FORMAT.format(self._channel_id)
