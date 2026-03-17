@@ -112,6 +112,9 @@ async def async_setup_entry(
             for sensor in _watcher.sensors.values():
                 if sensor.hass is not None:
                     sensor.async_schedule_update_ha_state(False)
+            for entity in _watcher.extra_entities:
+                if entity.hass is not None:
+                    entity.async_schedule_update_ha_state(False)
 
         for _chan in channels.values():
             if _chan.hass is not None:
@@ -125,6 +128,9 @@ async def async_setup_entry(
             for sensor in _watcher.sensors.values():
                 if sensor.hass is not None:
                     sensor.async_schedule_update_ha_state(False)
+            for entity in _watcher.extra_entities:
+                if entity.hass is not None:
+                    entity.async_schedule_update_ha_state(False)
 
     @bot.event
     async def on_presence_update(before: Member, after: Member):
@@ -134,6 +140,9 @@ async def async_setup_entry(
             for sensor in _watcher.sensors.values():
                 if sensor.hass is not None:
                     sensor.async_schedule_update_ha_state(False)
+            for entity in _watcher.extra_entities:
+                if entity.hass is not None:
+                    entity.async_schedule_update_ha_state(False)
 
     @bot.event
     async def on_user_update(before: User, after: User):
@@ -143,6 +152,9 @@ async def async_setup_entry(
             for sensor in _watcher.sensors.values():
                 if sensor.hass is not None:
                     sensor.async_schedule_update_ha_state(False)
+            for entity in _watcher.extra_entities:
+                if entity.hass is not None:
+                    entity.async_schedule_update_ha_state(False)
 
     @bot.event
     async def on_voice_state_update(_member: Member, before: VoiceState, after: VoiceState):
@@ -155,6 +167,9 @@ async def async_setup_entry(
                 for sensor in _watcher.sensors.values():
                     if sensor.hass is not None:
                         sensor.async_schedule_update_ha_state(False)
+                for entity in _watcher.extra_entities:
+                    if entity.hass is not None:
+                        entity.async_schedule_update_ha_state(False)
 
     @bot.event
     async def on_raw_reaction_add(payload: RawReactionActionEvent):
@@ -182,6 +197,8 @@ async def async_setup_entry(
                 ch = DiscordAsyncReactionState(hass, bot, chan.name, chan.id)
                 channels[str(chan.id)] = ch
 
+    hass.data[DOMAIN][config_entry.entry_id]["watchers"] = watchers
+
     if watchers or channels:
         if watchers:
             async_add_entities(watchers.values())
@@ -205,6 +222,7 @@ class DiscordAsyncMemberState(SensorEntity):
         self.avatar_url = None
         self.entity_id = ENTITY_ID_FORMAT.format(self.userid)
         self.sensors = {sensor_name: GenericSensor(sensor=self, attr=sensor_name) for sensor_name in SENSORS}
+        self.extra_entities = []
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -253,7 +271,10 @@ class GenericSensor(SensorEntity):
 
     @property
     def native_value(self) -> str:
-        return getattr(self.sensor, self.attr)
+        value = getattr(self.sensor, self.attr)
+        if self.attr == "game" and value is None:
+            return "No Game"
+        return value
 
     @property
     def unique_id(self):
