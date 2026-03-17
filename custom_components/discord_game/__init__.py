@@ -1,11 +1,17 @@
 """Component to integrate with Discord and get information about users online and game status."""
+import warnings
+
+# nextcord uses 'return' in 'finally' blocks intentionally (noqa: B012).
+# Python 3.14 promotes this to SyntaxWarning; suppress it before the first import.
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="nextcord.*")
+
 from homeassistant import config_entries, core
 from homeassistant.const import Platform
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN, DATA_HASS_CONFIG
 
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.MEDIA_PLAYER]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -19,7 +25,10 @@ async def async_setup_entry(
         "unsub_options_update_listener": entry.add_update_listener(async_options_updated),
     }
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Sensor must be set up first so watchers are stored in hass.data
+    # before the media_player platform reads them.
+    await hass.config_entries.async_forward_entry_setups(entry, [Platform.SENSOR])
+    await hass.config_entries.async_forward_entry_setups(entry, [Platform.MEDIA_PLAYER])
 
     return True
 
