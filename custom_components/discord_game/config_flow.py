@@ -72,9 +72,8 @@ class DiscordGameConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             for user in user_input.get(CONF_MEMBERS, []):
                 self.data[CONF_MEMBERS].append(self.members.get(user).id)
-            if user_input.get(CONF_CHANNELS):
-                for channel in user_input.get(CONF_CHANNELS):
-                    self.data[CONF_CHANNELS].append(self.channels.get(channel).id)
+            for channel in user_input.get(CONF_CHANNELS, []):
+                self.data[CONF_CHANNELS].append(self.channels.get(channel).id)
 
             return self.async_create_entry(title="Discord Game", data=self.data)
 
@@ -87,33 +86,20 @@ class DiscordGameConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         client = nextcord.Client(intents=nextcord.Intents.all())
         try:
             await client.login(token)
-            guilds_iter = client.fetch_guilds()
-            _LOGGER.debug("fetch_guilds() type: %s, value: %r", type(guilds_iter), guilds_iter)
-            guilds = [g async for g in guilds_iter]
-            _LOGGER.debug("guilds (as list): %s", guilds)
-
+            guilds = [g async for g in client.fetch_guilds()]
             self.members = {}
             self.channels = {}
 
             for guild in guilds:
-                _members_iter = guild.fetch_members()
-                _LOGGER.debug("fetch_members() type: %s, value: %r", type(_members_iter), _members_iter)
-                _members = [m async for m in _members_iter]
-                _LOGGER.debug("members (as list): %s", _members)
-                for member in _members:
+                async for member in guild.fetch_members():
                     self.members[member.name] = member
-
-                _channels = await guild.fetch_channels()
-                for channel in _channels:
+                for channel in await guild.fetch_channels():
                     self.channels[channel.name] = channel
-            _LOGGER.debug("members: %s", self.members)
-            _LOGGER.debug("channels: %s", self.channels)
+
+            _LOGGER.debug("Found %d members, %d channels", len(self.members), len(self.channels))
 
             self.user_names = list(self.members.keys())
-            _LOGGER.debug("userNames: %s", self.user_names)
-
             self.channel_names = list(self.channels.keys())
-            _LOGGER.debug("channelNames: %s", self.channel_names)
         except LoginFailure:
             raise ValueError("Invalid access token")
         finally:
