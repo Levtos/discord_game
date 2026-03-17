@@ -74,10 +74,6 @@ class DiscordGameMediaPlayer(MediaPlayerEntity):
         return MediaPlayerEntityFeature(0)
 
     @property
-    def entity_picture(self) -> str | None:
-        return self._watcher.avatar_url
-
-    @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, str(self._watcher.userid))},
