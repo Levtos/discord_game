@@ -1,7 +1,13 @@
 import logging
+import warnings
 from typing import Optional, Dict, Any
 
 import homeassistant.helpers.config_validation as cv
+
+# nextcord uses 'return' in 'finally' blocks intentionally (noqa: B012).
+# Python 3.14 promotes this to SyntaxWarning; suppress it before the first import.
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="nextcord.*")
+
 import nextcord
 import voluptuous as vol
 from homeassistant import config_entries
